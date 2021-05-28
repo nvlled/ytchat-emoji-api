@@ -4,16 +4,19 @@
   "main": "index.js",
   "license": "MIT",
   "scripts": {
-    "build-dev": "esbuild src/js/main.tsx src/css/main.css --bundle --outdir=dist/ --minify --sourcemap",
-    "dev": "esbuild src/js/main.tsx src/css/main.css --servedir=dist/ --bundle",
+    "build-dev": "esbuild src/index.ts --bundle --watch --platform=node --outdir=dist/ --keep-names",
+    "build": "esbuild src/index.ts --bundle --platform=node --outdir=dist/ --minify",
     "test": "jest",
     "watch-test": "jest --watch",
     "watch-tsc": "tsc --watch --pretty --preserveWatchOutput",
-    "start": "concurrently -c red,yellow,cyan,magenta npm:dev npm:watch-tsc npm:watch-test"
+    "start": "concurrently -c red,yellow,cyan,magenta npm:build-dev npm:watch-tsc npm:watch-test"
   },
   "dependencies": {
-    "axios": "^0.21.1",
-    "events": "^3.3.0",
+    "@types/express": "^4.17.12",
+    "@types/node-fetch": "^2.5.10",
+    "dotenv": "^10.0.0",
+    "express": "^4.17.1",
+    "node-fetch": "^2.6.1",
     "react": "^17.0.2",
     "react-dom": "^17.0.2"
   },
