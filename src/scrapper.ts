@@ -1,7 +1,4 @@
-import fs from "fs";
 import fetch from "node-fetch";
-
-const baseURL = "https://www.youtube.com/live_chat?is_popout=1&v=";
 
 interface Emoji {
   emojiId: string;
@@ -20,11 +17,7 @@ interface Emoji {
 }
 
 interface YtInitialData {
-  contents: {
-    liveChatRenderer: {
-      emojis: Emoji[];
-    };
-  };
+  contents: any;
 }
 
 const headers: Record<string, string> = {
@@ -49,16 +42,10 @@ const headers: Record<string, string> = {
   // TODO instead: create a dummy youtube account
 };
 
-export async function fetchCustomEmojis(
-  videoID: string
-): Promise<Emoji[] | null> {
-  headers.cookie = process.env.GOOGLE_AUTH_COOKIE || "";
-  const resp = await fetch(baseURL + videoID, {
-    headers,
-  });
-  const text = await resp.text();
-
-  const m = text.match(/window\[["']ytInitialData["']\]\s*=\s*({.*})/);
+function matchYtInitialData(html: string) {
+  const m = html.match(
+    /(?:var\s*ytInitialData|window\[["']ytInitialData["']\])\s*=\s*({.*});/
+  );
   if (!m) {
     return null;
   }
@@ -66,10 +53,189 @@ export async function fetchCustomEmojis(
   if (!json) {
     return null;
   }
-  try {
-    const initialData: YtInitialData = JSON.parse(json);
+  return json;
+}
 
-    return initialData?.contents?.liveChatRenderer?.emojis ?? null;
+export async function fetchEmojis(videoID: string) {
+  headers.cookie = process.env.GOOGLE_AUTH_COOKIE || "";
+  const resp = await fetch(`https://www.youtube.com/watch?v=${videoID}`, {
+    headers,
+    method: "GET",
+  });
+  try {
+    const json = matchYtInitialData(await resp.text());
+    if (!json) {
+      return null;
+    }
+
+    const ytInitialData: any = JSON.parse(json);
+    const buttonRenderer =
+      ytInitialData.contents?.twoColumnWatchNextResults?.results?.results
+        ?.contents?.[1]?.videoSecondaryInfoRenderer?.owner?.videoOwnerRenderer
+        ?.membershipButton?.buttonRenderer;
+    if (!buttonRenderer) {
+      return null;
+    }
+    const isSubscribed = !!(
+      !buttonRenderer.serviceEndpoint || buttonRenderer.navigationEndpoint
+    );
+
+    if (isSubscribed) {
+      return fetchSubscribed(ytInitialData);
+    } else {
+      return fetchUnsubscribed(ytInitialData);
+    }
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function fetchSubscribed(ytInitialData: YtInitialData) {
+  headers.cookie = process.env.GOOGLE_AUTH_COOKIE || "";
+
+  const fetchMembersPage = async () => {
+    try {
+      const buttonRenderer =
+        ytInitialData?.contents?.twoColumnWatchNextResults?.results?.results
+          ?.contents?.[1]?.videoSecondaryInfoRenderer?.owner?.videoOwnerRenderer
+          ?.membershipButton?.buttonRenderer;
+      const membersPageUrl: string =
+        buttonRenderer?.navigationEndpoint?.commandMetadata?.webCommandMetadata
+          ?.url;
+      const channelID: string =
+        buttonRenderer?.navigationEndpoint?.browseEndpoint?.browseId;
+
+      if (!membersPageUrl || !channelID) {
+        return [];
+      }
+
+      return [`https://youtube.com/${membersPageUrl}`, channelID];
+    } catch (e) {
+      console.log(e);
+      return [];
+    }
+  };
+  const fetchEmojis = async (membersPageUrl: string) => {
+    const resp = await fetch(membersPageUrl, { headers });
+    try {
+      const json = matchYtInitialData(await resp.text());
+      if (!json) {
+        return null;
+      }
+      const ytInitialData: any = JSON.parse(json);
+      const images =
+        ytInitialData?.contents?.twoColumnBrowseResultsRenderer?.tabs?.[4]
+          ?.tabRenderer?.content?.sectionListRenderer?.contents?.[0]
+          ?.sponsorshipsManagementRenderer?.content?.[3]
+          ?.sponsorshipsExpandableMessageRenderer?.expandableItems?.[0]
+          ?.sponsorshipsPerksRenderer?.perks?.[0]?.sponsorshipsPerkRenderer
+          ?.images;
+      const emojiMap: Record<string, string> = {};
+      for (const image of images) {
+        const i = image.thumbnails?.length - 1;
+        const url = image.thumbnails[i].url;
+        const emojiCode = image?.accessibility.accessibilityData.label;
+        if (!url || !emojiCode) {
+          continue;
+        }
+        emojiMap[`:_${emojiCode}:`] = url;
+      }
+      return emojiMap;
+    } catch (e) {
+      console.log(e);
+      return null;
+    }
+  };
+
+  const [membersPageUrl, channelID] = await fetchMembersPage();
+  if (!membersPageUrl || !channelID) {
+    return null;
+  }
+  const emojis = await fetchEmojis(membersPageUrl);
+  return { emojis, channelID };
+}
+
+export async function fetchUnsubscribed(ytInitialData: YtInitialData) {
+  headers.cookie = process.env.GOOGLE_AUTH_COOKIE || "";
+  const fetchItemParams = async () => {
+    try {
+      const membershipButton =
+        ytInitialData?.contents?.twoColumnWatchNextResults?.results?.results
+          ?.contents[1]?.videoSecondaryInfoRenderer?.owner?.videoOwnerRenderer
+          ?.membershipButton;
+
+      const itemParams =
+        membershipButton?.buttonRenderer?.serviceEndpoint?.ypcGetOffersEndpoint
+          ?.params;
+      return itemParams;
+    } catch (e) {
+      console.log(e);
+      return [];
+    }
+  };
+  const fetchEmojis = async (itemParams: string) => {
+    const resp = await fetch(
+      "https://www.youtube.com/youtubei/v1/ypc/get_offers?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+      {
+        headers: {
+          ...headers,
+          authorization: "SAPISIDHASH " + process.env.SAPISIDHASH,
+          "content-type": "application/json",
+          origin: "https://www.youtube.com",
+          "accept-language": "en-US,en;q=0.9",
+        },
+        body: `{"context":{"client":{"clientName":"WEB","clientVersion":"2.20210526.07.00"}},"itemParams":"${itemParams}"}`,
+        method: "POST",
+      }
+    );
+    return await resp.text();
+  };
+
+  const itemParams = await fetchItemParams();
+  if (!itemParams) {
+    return null;
+  }
+  const emojiResp = JSON.parse(await fetchEmojis(itemParams));
+  const images =
+    emojiResp?.actions?.[0]?.openPopupAction?.popup?.sponsorshipsOfferRenderer
+      ?.tiers?.[0]?.sponsorshipsTierRenderer?.perks?.sponsorshipsPerksRenderer
+      ?.perks?.[1]?.sponsorshipsPerkRenderer?.images;
+
+  const emojiMap: Record<string, string> = {};
+  for (const image of images) {
+    const i = image.thumbnails?.length - 1;
+    const url = image.thumbnails[i].url;
+    const emojiCode = image?.accessibility.accessibilityData.label;
+    if (!url || !emojiCode) {
+      continue;
+    }
+    emojiMap[`:_${emojiCode}:`] = url;
+  }
+  const channelID: string =
+    ytInitialData?.contents?.twoColumnWatchNextResults?.results?.results
+      ?.contents?.[1]?.videoSecondaryInfoRenderer?.subscribeButton
+      ?.subscribeButtonRenderer.channelId;
+
+  return { emojis: emojiMap, channelID };
+}
+
+export async function fetchEmojisFromChatPopup(
+  videoID: string
+): Promise<Emoji[] | null> {
+  headers.cookie = process.env.GOOGLE_AUTH_COOKIE || "";
+  const baseURL = "https://www.youtube.com/live_chat?is_popout=1&v=";
+  const resp = await fetch(baseURL + videoID, {
+    headers,
+  });
+
+  const json = matchYtInitialData(await resp.text());
+  if (!json) {
+    return null;
+  }
+  try {
+    const ytInitialData: YtInitialData = JSON.parse(json);
+
+    return ytInitialData?.contents?.liveChatRenderer?.emojis ?? null;
   } catch (e) {
     console.log(e);
     return null;

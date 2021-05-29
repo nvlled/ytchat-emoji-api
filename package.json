@@ -1,11 +1,11 @@
 {
   "name": "ts-esbuild-template",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "ytchat-emoji-api.js",
   "license": "MIT",
   "scripts": {
-    "build-dev": "esbuild src/index.ts --bundle --watch --platform=node --outdir=dist/ --keep-names",
-    "build": "esbuild src/index.ts --bundle --platform=node --outdir=dist/ --minify",
+    "build-dev": "esbuild src/index.ts --bundle --watch --platform=node --outfile=dist/ytchat-emoji-api.js --keep-names",
+    "build": "esbuild src/index.ts --bundle --platform=node --outfile=dist/ytchat-emoji-api.js --minify",
     "test": "jest",
     "watch-test": "jest --watch",
     "watch-tsc": "tsc --watch --pretty --preserveWatchOutput",

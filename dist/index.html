@@ -1,0 +1,39 @@
+
+<style>
+    body {
+        font-family: monospace;
+        font-size: 22px;
+        width: 800px;
+        margin: 50px auto;
+    }
+</style>
+<h1>Custom emoji JSON files from youtube channels</h1>
+
+<h2>What's this?</h2>
+<div>
+    Emoji JSON files scraped from youtube pages.
+</div>
+
+<h2>Why?</h2>
+<div>
+    When using the youtube Livestream Chat API,
+    there's no way to get the custom emoji images
+    without resorting to scraping the youtube pages.
+</div>
+
+<h2>How to use</h2>
+<div>
+    <p>
+        Make an HTTP request to <em>/emojis/$CHANNEL_ID/$VIDEO_ID</em>
+    </p>
+    <p>
+        Example
+    <a href="https://ytchat.liteskit.net/emojis/UCyl1z3jo3XHR1riLFKG5UAg/KIe916CW3pg">/emojis/UCyl1z3jo3XHR1riLFKG5UAg/KIe916CW3pg</a>
+    </p>
+</div>
+
+<h2>Notes</h2>
+<div>
+    The initial request will be slow since it's scraping several youtube pages.
+    Also, there won't be automatic updates for now if a youtube channel changes the emojis.
+</div>

@@ -1,5 +1,5 @@
 import fs from "fs";
-import { fetchCustomEmojis } from "./scrapper";
+import { fetchEmojis } from "./scrapper";
 
 import { fileExists } from "./utils";
 
@@ -8,7 +8,7 @@ export const createFetcher = () => {
   const queueLimit = 5000;
   const delay = 1000;
   const videoIDs: { videoID: string; channelID: string }[] = [];
-  const listeners: Record<string, (() => void)[]> = {};
+  const listeners: Record<string, ((ok: boolean) => void)[]> = {};
 
   const self = {
     queue(videoID: string, channelID: string) {
@@ -20,7 +20,7 @@ export const createFetcher = () => {
         if (!listeners[videoID]) {
           listeners[videoID] = [];
         }
-        listeners[videoID]?.push(() => resolve(null));
+        listeners[videoID]?.push((ok: boolean) => resolve(ok));
 
         videoIDs.push({ videoID, channelID });
         if (!running) {
@@ -33,28 +33,43 @@ export const createFetcher = () => {
     },
   };
 
+  const notify = (videoID: string, ok: boolean) => {
+    for (const fn of listeners[videoID] ?? []) {
+      fn(ok);
+    }
+    delete listeners[videoID];
+  };
+
   const loop = async () => {
     running = true;
     const item = videoIDs.shift();
 
     if (item) {
       const { videoID, channelID } = item;
-      const filename = `./data/${channelID}.json`;
+      let filename = `./data/${channelID}.json`;
 
       const exists = await fileExists(filename);
-      if (!exists) {
+      if (exists) {
+        notify(videoID, true);
+      } else {
         console.log("fetching", videoID);
-        const emojis = await fetchCustomEmojis(videoID);
-        if (emojis && emojis.length > 0) {
-          await fs.promises.mkdir("./data", { recursive: true });
-          await fs.promises.writeFile(filename, JSON.stringify(emojis));
-          for (const fn of listeners[videoID] ?? []) {
-            fn();
+        const result = await fetchEmojis(videoID);
+        try {
+          if (result) {
+            const { emojis, channelID: actualChannelID } = result;
+            if (actualChannelID && channelID != actualChannelID) {
+              filename = `./data/${actualChannelID}.json`;
+            }
+            await fs.promises.mkdir("./data", { recursive: true });
+            await fs.promises.writeFile(filename, JSON.stringify(emojis));
+            notify(videoID, true);
+            console.log("wrote file on", filename, "for video", videoID);
+          } else {
+            notify(videoID, false);
+            console.log("no emojis found for", videoID);
           }
-          console.log("wrote file on", filename, "for video", videoID);
-          delete listeners[videoID];
-        } else {
-          console.log("no emojis found for", videoID);
+        } catch (e) {
+          notify(videoID, false);
         }
       }
     }
